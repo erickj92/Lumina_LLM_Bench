@@ -18,13 +18,14 @@ function isDevEnvironment(): boolean {
 
 /**
  * Get the Ollama Cloud API URL, using the Vite dev proxy to bypass CORS
- * when running locally, or the direct ollama.com URL otherwise.
+ * when running locally, or the backend proxy in production.
  */
 export function getOllamaCloudApiUrl(path: string): string {
   if (isDevEnvironment()) {
     return `/ollama-proxy${path}`;
   }
-  return `https://ollama.com${path}`;
+  // In production, route through the backend proxy to avoid CORS issues
+  return `/proxy/ollama${path}`;
 }
 
 /**

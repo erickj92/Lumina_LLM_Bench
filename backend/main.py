@@ -10,8 +10,10 @@ Run with:
 import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse
+import httpx
 
 from database import engine, Base
 from auth_router import router as auth_router
@@ -63,6 +65,67 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(results_router)
+
+
+# ── Ollama Cloud proxy ────────────────────────────────────────────────────
+# Proxies requests to https://ollama.com to avoid CORS issues in production.
+# The browser talks to the same origin (our backend), which forwards to ollama.com.
+
+OLLAMA_CLOUD_BASE = "https://ollama.com"
+
+
+@app.api_route("/proxy/ollama/{path:path}", methods=["GET", "POST", "OPTIONS"])
+async def proxy_ollama(path: str, request: Request):
+    """
+    Proxy requests to ollama.com, passing through Authorization headers.
+    Used by the frontend in production to bypass ollama.com's missing CORS headers.
+    """
+    target_url = f"{OLLAMA_CLOUD_BASE}/{path}"
+    logger.info("[ollama-proxy] Proxying %s %s", request.method, target_url)
+
+    # Extract headers to forward (strip host-specific ones)
+    headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() not in ("host", "content-length", "transfer-encoding", "connection")
+    }
+
+    body = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            response = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+                content=body,
+            )
+
+            # For streaming responses (chat completions), use StreamingResponse
+            content_type = response.headers.get("content-type", "")
+            if content_type.startswith("application/x-ndjson"):
+                async def stream():
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+
+                return StreamingResponse(
+                    stream(),
+                    status_code=response.status_code,
+                    media_type="application/x-ndjson",
+                )
+
+            # For regular responses (model listing, etc.)
+            return JSONResponse(
+                content=response.json() if response.text else {},
+                status_code=response.status_code,
+            )
+
+        except httpx.RequestError as e:
+            logger.exception("[ollama-proxy] Request failed: %s", e)
+            return JSONResponse(
+                content={"error": f"Ollama proxy request failed: {str(e)}"},
+                status_code=502,
+            )
 
 
 @app.get("/")
