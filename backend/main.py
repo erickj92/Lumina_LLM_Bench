@@ -154,7 +154,12 @@ async def proxy_ollama(path: str, request: Request):
 
             # ── Case 1: NDJSON streaming (chat completions) ──────────────
             if is_streaming:
-                response = await client.send(req, stream=True)
+                # Use a fresh client for streaming to avoid connection pool issues
+                stream_client = httpx.AsyncClient(
+                    timeout=_OLLAMA_PROXY_TIMEOUT,
+                    limits=httpx.Limits(max_keepalive_connections=0, max_connections=1),
+                )
+                response = await stream_client.send(req, stream=True)
 
                 logger.info(
                     "[ollama-proxy] <<< %s %s returned %s  (streaming)",
@@ -164,13 +169,55 @@ async def proxy_ollama(path: str, request: Request):
                 )
 
                 async def _stream_ndjson():
+                    chunk_count = 0
+                    total_bytes = 0
+                    logger.info(
+                        "[ollama-proxy] Streaming NDJSON started for %s",
+                        request.url.path,
+                    )
                     try:
                         async for chunk in response.aiter_bytes():
+                            if not chunk:
+                                continue
+                            chunk_count += 1
+                            total_bytes += len(chunk)
+                            logger.debug(
+                                "[ollama-proxy] Chunk #%d: %d bytes (total: %d)",
+                                chunk_count,
+                                len(chunk),
+                                total_bytes,
+                            )
                             yield chunk
+                        logger.info(
+                            "[ollama-proxy] Streaming NDJSON finished: "
+                            "%d chunks, %d total bytes",
+                            chunk_count,
+                            total_bytes,
+                        )
+                    except httpx.ReadError as read_err:
+                        # Connection closed by upstream - this can happen normally
+                        # for long-running streams. Log it but don't crash.
+                        logger.warning(
+                            "[ollama-proxy] Stream connection closed after "
+                            "%d chunks / %d bytes (this is normal for long streams): %s",
+                            chunk_count,
+                            total_bytes,
+                            read_err,
+                        )
+                        # Stream ends gracefully
                     except Exception as chunk_err:
                         logger.exception(
-                            "[ollama-proxy] Chunk streaming error: %s", chunk_err
+                            "[ollama-proxy] Chunk streaming error after "
+                            "%d chunks / %d bytes: %s",
+                            chunk_count,
+                            total_bytes,
+                            chunk_err,
                         )
+                        # Re-raise other errors
+                        raise
+                    finally:
+                        # Ensure client is closed after stream ends
+                        await stream_client.aclose()
 
                 return StreamingResponse(
                     _stream_ndjson(),

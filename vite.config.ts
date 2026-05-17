@@ -14,9 +14,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/ollama-proxy': {
-        target: 'https://ollama.com',
+        target: 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/ollama-proxy/, ''),
+        rewrite: (p) => p.replace(/^\/ollama-proxy/, '/proxy/ollama'),
       },
       '/auth': {
         target: 'http://localhost:8000',

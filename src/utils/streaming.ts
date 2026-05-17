@@ -162,7 +162,7 @@ export async function streamOllamaCompletion(
   config: StreamTestConfig,
   onChunk?: (text: string) => void,
   signal?: AbortSignal,
-  _onReasoningChunk?: (text: string) => void,
+  onReasoningChunk?: (text: string) => void,
 ): Promise<StreamMetrics> {
   const { baseUrl, model, prompt, maxTokens, temperature } = {
     prompt: 'Hello, please respond with a short paragraph about AI benchmarking.',
@@ -178,6 +178,7 @@ export async function streamOllamaCompletion(
   let ttft: number | null = null;
   let firstChunkTime: number | null = null;
   let accumulatedText = '';
+  let accumulatedReasoning = '';
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -227,8 +228,9 @@ export async function streamOllamaCompletion(
       try {
         const parsed = JSON.parse(trimmed);
         const content: string = parsed.message?.content ?? '';
+        const reasoningContent: string = parsed.message?.reasoning_content ?? '';
 
-        if (content && ttft === null) {
+        if ((content || reasoningContent) && ttft === null) {
           ttft = now - requestStart;
           firstChunkTime = now;
         }
@@ -236,6 +238,11 @@ export async function streamOllamaCompletion(
         if (content) {
           accumulatedText += content;
           onChunk?.(content);
+        }
+
+        if (reasoningContent) {
+          accumulatedReasoning += reasoningContent;
+          onReasoningChunk?.(reasoningContent);
         }
 
         if (parsed.done === true) {
@@ -253,17 +260,22 @@ export async function streamOllamaCompletion(
   const totalDuration = now - requestStart;
   const streamDuration = firstChunkTime ? now - firstChunkTime : totalDuration;
   const contentTokens = estimateTokenCount(accumulatedText);
+  const reasoningTokenEstimate = accumulatedReasoning
+    ? estimateTokenCount(accumulatedReasoning)
+    : 0;
+  // Use actual evalCount from Ollama if available (total output tokens including reasoning)
+  const actualTotalTokens = evalCount ?? (contentTokens + reasoningTokenEstimate);
 
   return {
     ttft: ttft ?? totalDuration,
     tps: streamDuration > 0 ? contentTokens / (streamDuration / 1000) : 0,
-    totalTokens: contentTokens,
+    totalTokens: actualTotalTokens,
     totalDuration,
     latency,
     promptTokens: promptEvalCount,
     completionTokens: evalCount,
-    reasoningContent: undefined,
-    reasoningTokens: undefined,
+    reasoningContent: accumulatedReasoning || undefined,
+    reasoningTokens: reasoningTokenEstimate || undefined,
   };
 }
 
@@ -421,13 +433,15 @@ export async function streamOllamaCloudCompletion(
   const reasoningTokenEstimate = accumulatedReasoning
     ? estimateTokenCount(accumulatedReasoning)
     : 0;
+  // Use actual evalCount from Ollama if available (total output tokens including reasoning)
+  const actualTotalTokens = evalCount ?? (contentTokens + reasoningTokenEstimate);
 
   return {
     ttft: ttft ?? totalDuration,
     tps: streamDuration > 0
       ? estimateTokenCount(accumulatedText) / (streamDuration / 1000)
       : 0,
-    totalTokens: contentTokens + reasoningTokenEstimate,
+    totalTokens: actualTotalTokens,
     totalDuration,
     latency,
     promptTokens: promptEvalCount,
