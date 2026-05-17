@@ -276,7 +276,7 @@ export async function streamOllamaCloudCompletion(
   config: StreamTestConfig,
   onChunk?: (text: string) => void,
   signal?: AbortSignal,
-  _onReasoningChunk?: (text: string) => void,
+  onReasoningChunk?: (text: string) => void,
 ): Promise<StreamMetrics> {
   const { baseUrl, model, apiKey, prompt, maxTokens, temperature } = {
     prompt: 'Hello, please respond with a short paragraph about AI benchmarking.',
@@ -295,6 +295,7 @@ export async function streamOllamaCloudCompletion(
   let ttft: number | null = null;
   let firstChunkTime: number | null = null;
   let accumulatedText = '';
+  let accumulatedReasoning = '';
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -347,8 +348,9 @@ export async function streamOllamaCloudCompletion(
       try {
         const parsed = JSON.parse(trimmed);
         const content: string = parsed.message?.content ?? '';
+        const reasoningContent: string = parsed.message?.reasoning_content ?? '';
 
-        if (content && ttft === null) {
+        if ((content || reasoningContent) && ttft === null) {
           ttft = now - requestStart;
           firstChunkTime = now;
         }
@@ -356,6 +358,11 @@ export async function streamOllamaCloudCompletion(
         if (content) {
           accumulatedText += content;
           onChunk?.(content);
+        }
+
+        if (reasoningContent) {
+          accumulatedReasoning += reasoningContent;
+          onReasoningChunk?.(reasoningContent);
         }
 
         if (parsed.done === true) {
@@ -369,20 +376,63 @@ export async function streamOllamaCloudCompletion(
     }
   }
 
+  // Phase 2: Flush any remaining buffered line after stream ends
+  if (buffer.trim()) {
+    const trimmed = buffer.trim();
+    const now = performance.now();
+    try {
+      const parsed = JSON.parse(trimmed);
+      const content: string = parsed.message?.content ?? '';
+      const reasoningContent: string = parsed.message?.reasoning_content ?? '';
+
+      if ((content || reasoningContent) && ttft === null) {
+        ttft = now - requestStart;
+        firstChunkTime = now;
+      }
+
+      if (content) {
+        accumulatedText += content;
+        onChunk?.(content);
+      }
+
+      if (reasoningContent) {
+        accumulatedReasoning += reasoningContent;
+        onReasoningChunk?.(reasoningContent);
+      }
+
+      if (parsed.done === true) {
+        promptEvalCount = parsed.prompt_eval_count as number | undefined;
+        evalCount = parsed.eval_count as number | undefined;
+      }
+    } catch (parseError) {
+      const msg = parseError instanceof Error ? parseError.message : String(parseError);
+      console.warn('[streamOllamaCloud] Skipping malformed JSON in final buffer: ' + msg);
+    }
+    buffer = '';
+  }
+
+  // Phase 3: Flush TextDecoder to handle any remaining multi-byte sequences
+  decoder.decode();
+
   const now = performance.now();
   const totalDuration = now - requestStart;
   const streamDuration = firstChunkTime ? now - firstChunkTime : totalDuration;
   const contentTokens = estimateTokenCount(accumulatedText);
+  const reasoningTokenEstimate = accumulatedReasoning
+    ? estimateTokenCount(accumulatedReasoning)
+    : 0;
 
   return {
     ttft: ttft ?? totalDuration,
-    tps: streamDuration > 0 ? contentTokens / (streamDuration / 1000) : 0,
-    totalTokens: contentTokens,
+    tps: streamDuration > 0
+      ? estimateTokenCount(accumulatedText) / (streamDuration / 1000)
+      : 0,
+    totalTokens: contentTokens + reasoningTokenEstimate,
     totalDuration,
     latency,
     promptTokens: promptEvalCount,
     completionTokens: evalCount,
-    reasoningContent: undefined,
-    reasoningTokens: undefined,
+    reasoningContent: accumulatedReasoning || undefined,
+    reasoningTokens: reasoningTokenEstimate || undefined,
   };
 }
