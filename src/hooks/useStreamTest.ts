@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import type { StreamTestState, StreamTestConfig, StreamMetrics } from '../types';
 import { streamCompletion } from '../utils/streaming';
-import { fetchModels, detectProvider, isLocalOllamaUrl, isOllamaUrl } from '../utils/models';
+import { fetchModels, detectProvider, isLocalOllamaUrl } from '../utils/models';
 
 /** Default config for quick testing */
 const DEFAULT_CONFIG: StreamTestConfig = {

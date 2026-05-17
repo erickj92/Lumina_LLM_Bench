@@ -19,7 +19,6 @@ const KNOWN_PROVIDERS = [
 
 export function KeyVault() {
   const { keys, addKey, deleteKey } = useKeyStore();
-  const setView = useUiStore(s => s.setView);
 
   const [provider, setProvider] = useState('OpenAI');
   const [baseUrl, setBaseUrl] = useState('https://api.openai.com');

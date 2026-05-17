@@ -3,8 +3,6 @@ import { useStreamTest } from '../hooks/useStreamTest';
 import { useKeyStore } from '../stores/keyStore';
 import { useHistoryStore } from '../stores/historyStore';
 import { useUiStore } from '../stores/uiStore';
-import { useAuthStore } from '../stores/authStore';
-import { decryptKey } from '../lib/utils';
 import { submitResult } from '../api/client';
 import { Card, CardContent, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
@@ -417,7 +415,7 @@ export function StreamTest() {
         <div className="flex gap-2 ml-auto">
           <Button
             variant="primary"
-            onClick={(e) => {
+            onClick={() => {
               handleRunTest().catch();
             }}
             disabled={!canRunTest}

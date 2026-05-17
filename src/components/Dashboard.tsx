@@ -42,7 +42,7 @@ const Sparkline = React.memo(function Sparkline({ data }: { data: Array<{ ttft: 
               fontSize: 12,
               color: '#e2e8f0',
             }}
-            formatter={(value: number) => value.toFixed(1)}
+            formatter={(value: unknown) => typeof value === 'number' ? value.toFixed(1) : String(value ?? '')}
           />
           <Line type="monotone" dataKey="ttft" stroke="#3b82f6" strokeWidth={2} dot={false} name="TTFT" />
           <Line type="monotone" dataKey="tps" stroke="#22c55e" strokeWidth={2} dot={false} name="TPS" />
@@ -86,10 +86,8 @@ const ComboCard = React.memo(function ComboCard({
   );
 
   return (
-    <Card
-      className={`${perf.bg} border-l-4`}
-      style={{ borderLeftColor: perf.color }}
-    >
+    <div className={`${perf.bg} border-l-4 rounded-xl`} style={{ borderLeftColor: perf.color }}>
+      <Card>
       <CardContent>
         <div className="flex items-center gap-2 mb-1">
           <Badge variant="info">{provider}</Badge>
@@ -125,6 +123,7 @@ const ComboCard = React.memo(function ComboCard({
         </Button>
       </CardContent>
     </Card>
+    </div>
   );
 });
 
