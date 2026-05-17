@@ -132,10 +132,19 @@ async def proxy_ollama(path: str, request: Request):
         logger.debug("[ollama-proxy] No request body")
 
     # ── Forward the request ────────────────────────────────────────────────
+    # Determine whether the target endpoint returns NDJSON (streaming) or
+    # regular JSON.  Ollama's /api/chat and /api/generate return NDJSON;
+    # all other endpoints (e.g. /api/tags) return plain JSON.
+    is_streaming = (
+        request.method == "POST"
+        and "/api/chat" in target_url
+    ) or (
+        request.method == "POST"
+        and "/api/generate" in target_url
+    )
+
     async with httpx.AsyncClient(timeout=_OLLAMA_PROXY_TIMEOUT) as client:
         try:
-            # Use build_request + send(stream=True) so NDJSON streaming responses
-            # are forwarded chunk-by-chunk instead of being fully buffered first.
             req = client.build_request(
                 method=request.method,
                 url=target_url,
@@ -143,21 +152,15 @@ async def proxy_ollama(path: str, request: Request):
                 content=body,
             )
 
-            response = await client.send(req, stream=True)
+            # ── Case 1: NDJSON streaming (chat completions) ──────────────
+            if is_streaming:
+                response = await client.send(req, stream=True)
 
-            logger.info(
-                "[ollama-proxy] <<< %s %s returned %s  (content-type: %s)",
-                request.method,
-                request.url.path,
-                response.status_code,
-                response.headers.get("content-type", "?"),
-            )
-
-            # ── Streaming (NDJSON) responses — chat completions ──────────
-            content_type = response.headers.get("content-type", "")  # type: ignore[arg-type]
-            if "ndjson" in content_type or "x-ndjson" in content_type:
-                logger.debug(
-                    "[ollama-proxy] Streaming NDJSON response back to client"
+                logger.info(
+                    "[ollama-proxy] <<< %s %s returned %s  (streaming)",
+                    request.method,
+                    request.url.path,
+                    response.status_code,
                 )
 
                 async def _stream_ndjson():
@@ -175,12 +178,21 @@ async def proxy_ollama(path: str, request: Request):
                     media_type="application/x-ndjson",
                 )
 
-            # ── Non-streaming responses (model listing, etc.) ────────────
+            # ── Case 2: Regular JSON responses (model listing, etc.) ──────
+            response = await client.send(req)  # NOT streaming
+
+            logger.info(
+                "[ollama-proxy] <<< %s %s returned %s  (content-type: %s)",
+                request.method,
+                request.url.path,
+                response.status_code,
+                response.headers.get("content-type", "?"),
+            )
+
             try:
                 data = response.json()
             except Exception as json_err:
-                # response.json() internally reads & buffers the body, so
-                # response.text gives us the already-buffered raw content.
+                # response.json() has already read and buffered the body
                 raw_text = response.text
                 logger.warning(
                     "[ollama-proxy] Non-JSON response body: %s",
@@ -188,7 +200,6 @@ async def proxy_ollama(path: str, request: Request):
                 )
                 data = {"text": raw_text}
 
-            # If Ollama returned an error, surface it
             if response.status_code >= 400:
                 logger.error(
                     "[ollama-proxy] Upstream error %s: %s",
