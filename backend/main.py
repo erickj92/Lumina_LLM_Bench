@@ -177,14 +177,16 @@ async def proxy_ollama(path: str, request: Request):
 
             # ── Non-streaming responses (model listing, etc.) ────────────
             try:
-                data = response.json() if response.text else {}
+                data = response.json()
             except Exception as json_err:
-                text_body = await response.aread()
+                # response.json() internally reads & buffers the body, so
+                # response.text gives us the already-buffered raw content.
+                raw_text = response.text
                 logger.warning(
                     "[ollama-proxy] Non-JSON response body: %s",
-                    text_body[:500].decode("utf-8", errors="replace"),
+                    raw_text[:500],
                 )
-                data = {"text": text_body.decode("utf-8", errors="replace")}
+                data = {"text": raw_text}
 
             # If Ollama returned an error, surface it
             if response.status_code >= 400:
