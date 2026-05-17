@@ -11,4 +11,13 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    proxy: {
+      '/ollama-proxy': {
+        target: 'https://ollama.com',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/ollama-proxy/, ''),
+      },
+    },
+  },
 })

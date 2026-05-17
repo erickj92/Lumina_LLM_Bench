@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import type { StreamTestState, StreamTestConfig, StreamMetrics } from '../types';
 import { streamCompletion } from '../utils/streaming';
-import { fetchModels, detectProvider } from '../utils/models';
+import { fetchModels, detectProvider, isLocalOllamaUrl, isOllamaUrl } from '../utils/models';
 
 /** Default config for quick testing */
 const DEFAULT_CONFIG: StreamTestConfig = {
@@ -65,8 +65,8 @@ export function useStreamTest() {
   const runTest = useCallback(async (config: Partial<StreamTestConfig> = {}) => {
     const merged: StreamTestConfig = { ...DEFAULT_CONFIG, ...config };
 
-    // Validate
-    if (!merged.apiKey) {
+    // Validate — API key not required for local Ollama instances, but IS required for cloud
+    if (!merged.apiKey && !isLocalOllamaUrl(merged.baseUrl)) {
       setState(prev => ({
         ...prev,
         status: 'error',

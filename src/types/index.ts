@@ -75,5 +75,12 @@ export interface StoredKey {
   lastUsed?: number;
 }
 
+/** Saved custom provider configuration */
+export interface CustomProviderConfig {
+  id: string;
+  name: string;
+  baseUrl: string;
+}
+
 /** App views for navigation */
 export type AppView = 'dashboard' | 'run-test' | 'history' | 'vault';

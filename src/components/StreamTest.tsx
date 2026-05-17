@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useStreamTest } from '../hooks/useStreamTest';
 import { useKeyStore } from '../stores/keyStore';
 import { useHistoryStore } from '../stores/historyStore';
@@ -9,7 +9,7 @@ import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Badge } from './ui/Badge';
 import { ModelSelector } from './ModelSelector';
-import { detectProvider } from '../utils/models';
+import { detectProvider, isOllamaUrl, isOllamaCloudUrl, isLocalOllamaUrl } from '../utils/models';
 
 const KNOWN_PROVIDERS = [
   { name: 'OpenAI', url: 'https://api.openai.com' },
@@ -17,6 +17,8 @@ const KNOWN_PROVIDERS = [
   { name: 'Venice', url: 'https://api.venice.ai' },
   { name: 'DeepSeek', url: 'https://api.deepseek.com' },
   { name: 'Together', url: 'https://api.together.xyz' },
+  { name: 'Ollama Cloud', url: 'https://ollama.com' },
+  { name: 'Ollama (Local)', url: 'http://localhost:11434' },
 ];
 
 export function StreamTest() {
@@ -38,6 +40,7 @@ export function StreamTest() {
   const { keys, getDecryptedKey } = useKeyStore();
   const addResult = useHistoryStore(s => s.addResult);
   const addRecentModel = useUiStore(s => s.addRecentModel);
+  const { customProviders, addCustomProvider, removeCustomProvider } = useUiStore();
 
   const [baseUrl, setBaseUrl] = useState('https://api.openai.com');
   const [apiKey, setApiKey] = useState('');
@@ -45,6 +48,10 @@ export function StreamTest() {
   const [manualModel, setManualModel] = useState('');
   const [maxTokens, setMaxTokens] = useState('4096');
   const [showReasoning, setShowReasoning] = useState(false);
+
+  // Custom provider state
+  const [showCustomForm, setShowCustomForm] = useState(false);
+  const [customProviderName, setCustomProviderName] = useState('');
 
   // Try to auto-fill key from vault
   useEffect(() => {
@@ -58,16 +65,38 @@ export function StreamTest() {
   const handleSelectProvider = (url: string) => {
     setBaseUrl(url);
     setSelectedModel('');
+    setShowCustomForm(false);
+    // Reset models when switching providers
+    if (modelsLoaded) {
+      reset();
+    }
   };
 
-  const handleLoadModels = () => {
-    if (!apiKey) return;
-    loadModels(baseUrl, apiKey);
+  const handleSelectCustom = () => {
+    setShowCustomForm(true);
+    setBaseUrl('');
+    setSelectedModel('');
+    setCustomProviderName('');
   };
 
-  const handleRunTest = async () => {
+  const handleSelectCustomSaved = (name: string, url: string) => {
+    setShowCustomForm(false);
+    setBaseUrl(url);
+    setCustomProviderName(name);
+    setSelectedModel('');
+  };
+
+  const handleLoadModels = useCallback(() => {
+    // Ollama doesn't need an API key for local model listing
+    if (!apiKey && !isOllamaUrl(baseUrl)) return;
+    loadModels(baseUrl, apiKey || '');
+  }, [apiKey, baseUrl, loadModels]);
+
+  const handleRunTest = useCallback(async () => {
     const effectiveModel = selectedModel || manualModel;
-    if (!apiKey || !effectiveModel) return;
+    if (!effectiveModel) return;
+    // Local Ollama doesn't need an API key; cloud Ollama does
+    if (!apiKey && !isLocalOllamaUrl(baseUrl)) return;
 
     const result = await runTest({
       baseUrl,
@@ -77,7 +106,6 @@ export function StreamTest() {
     });
 
     if (result && 'ttft' in result) {
-      // result.provider is correctly detected via detectProvider()
       const { provider, model, ...metricsData } = result;
       addRecentModel(provider, effectiveModel);
       await addResult({
@@ -88,7 +116,14 @@ export function StreamTest() {
         ...metricsData,
       });
     }
-  };
+  }, [baseUrl, apiKey, selectedModel, manualModel, maxTokens, runTest, addRecentModel, addResult]);
+
+  const handleSaveCustomProviderWrapper = useCallback(() => {
+    const name = customProviderName.trim() || detectProvider(baseUrl);
+    if (name && baseUrl.trim()) {
+      addCustomProvider(name, baseUrl.trim());
+    }
+  }, [customProviderName, baseUrl, addCustomProvider]);
 
   const copyResponse = () => {
     navigator.clipboard.writeText(responseText).catch(() => {});
@@ -97,6 +132,12 @@ export function StreamTest() {
   const recentModels = useUiStore(s => s.recentlyUsedModels)
     .filter(m => m.provider === detectProvider(baseUrl))
     .map(m => m.model);
+
+  const isOllamaLocal = isLocalOllamaUrl(baseUrl);
+  const isOllamaCloud = isOllamaCloudUrl(baseUrl);
+  const isOllama = isOllamaUrl(baseUrl);
+  const canLoadModels = (apiKey || isOllama) && !isLoadingModels;
+  const canRunTest = (apiKey || isOllamaLocal) && (selectedModel || manualModel) && !isRunning;
 
   return (
     <div className="space-y-6">
@@ -112,19 +153,87 @@ export function StreamTest() {
                 key={p.url}
                 onClick={() => handleSelectProvider(p.url)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  baseUrl === p.url
-                    ? 'bg-lumina-600 text-white' : 'bg-surface-3 text-text-secondary border border-border hover:border-border-light'
+                  !showCustomForm && baseUrl === p.url
+                    ? 'bg-lumina-600 text-white'
+                    : 'bg-surface-3 text-text-secondary border border-border hover:border-border-light'
                 }`}
               >
                 {p.name}
               </button>
             ))}
+            <button
+              onClick={handleSelectCustom}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                showCustomForm
+                  ? 'bg-lumina-600 text-white'
+                  : 'bg-surface-3 text-text-secondary border border-border hover:border-border-light'
+              }`}
+            >
+              Custom
+            </button>
           </div>
-          <Input
-            placeholder="Or enter a custom base URL..."
-            value={baseUrl}
-            onChange={e => setBaseUrl(e.target.value)}
-          />
+
+          {/* Custom provider form */}
+          {showCustomForm && (
+            <div className="space-y-2 p-3 rounded-lg bg-surface-3/50 border border-border">
+              <Input
+                placeholder="Provider Name (e.g. My Local LLM)"
+                value={customProviderName}
+                onChange={e => setCustomProviderName(e.target.value)}
+              />
+              <Input
+                placeholder="API Base URL (e.g. https://my-llm.example.com)"
+                value={baseUrl}
+                onChange={e => setBaseUrl(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveCustomProviderWrapper}
+                  disabled={!customProviderName.trim() || !baseUrl.trim()}
+                >
+                  Save Provider
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* If not showing custom form, show normal URL input */}
+          {!showCustomForm && (
+            <Input
+              placeholder="Or enter a custom URL (e.g. http://localhost:11434)"
+              value={baseUrl}
+              onChange={e => {
+                setBaseUrl(e.target.value);
+                setShowCustomForm(false);
+              }}
+            />
+          )}
+
+          {/* Saved custom providers quick-select */}
+          {customProviders.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-1">
+              {customProviders.map(cp => (
+                <button
+                  key={cp.id}
+                  onClick={() => handleSelectCustomSaved(cp.name, cp.baseUrl)}
+                  className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-surface-3 border border-border text-text-secondary hover:border-lumina-500 transition-colors"
+                >
+                  {cp.name}
+                  <span
+                    onClick={e => {
+                      e.stopPropagation();
+                      removeCustomProvider(cp.id);
+                    }}
+                    className="ml-1 text-text-muted hover:text-danger cursor-pointer"
+                  >
+                    x
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -132,6 +241,11 @@ export function StreamTest() {
       <Card>
         <CardHeader>
           <h3 className="text-sm font-semibold text-text">API Key</h3>
+          {!isOllama && (
+            <p className="text-xs text-text-muted mt-1">
+              Not needed for Ollama instances
+            </p>
+          )}
           {keys.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
               {keys.filter(k => k.baseUrl === baseUrl).map(k => (
@@ -153,7 +267,7 @@ export function StreamTest() {
           <div className="flex gap-2">
             <Input
               type="password"
-              placeholder="sk-..."
+              placeholder={isOllamaLocal ? 'Not required for local Ollama' : isOllamaCloud ? 'ollama-api-key...' : 'sk-...'}
               value={apiKey}
               onChange={e => setApiKey(e.target.value)}
               className="flex-1"
@@ -161,14 +275,32 @@ export function StreamTest() {
             <Button
               variant="primary"
               onClick={handleLoadModels}
-              disabled={!apiKey || isLoadingModels}
+              disabled={!canLoadModels}
             >
               {isLoadingModels ? '...' : 'Load Models'}
             </Button>
           </div>
-          {apiKey && (
+          {apiKey && !isOllama && (
             <p className="text-xs text-text-muted mt-1">
-              ⚡ Key stays in your browser — never sent to our server
+              Key stays in your browser — never sent to our server
+            </p>
+          )}
+          {isOllamaLocal && (
+            <p className="text-xs text-text-muted mt-1">
+              Ollama runs locally — no API key needed
+            </p>
+          )}
+          {isOllamaCloud && (
+            <p className="text-xs text-text-muted mt-1">
+              Ollama Cloud requires an API key for chat — get yours at{' '}
+              <a
+                href="https://ollama.com/settings/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-lumina-500 hover:text-lumina-400 underline"
+              >
+                ollama.com/settings/keys
+              </a>
             </p>
           )}
         </CardContent>
@@ -209,14 +341,16 @@ export function StreamTest() {
         <div className="flex gap-2 ml-auto">
           <Button
             variant="primary"
-            onClick={handleRunTest}
-            disabled={!apiKey || !(selectedModel || manualModel) || isRunning}
+            onClick={(e) => {
+              handleRunTest().catch();
+            }}
+            disabled={!canRunTest}
           >
-            {isRunning ? '🔄 Running...' : '▶ Run Benchmark'}
+            {isRunning ? 'Running...' : 'Run Benchmark'}
           </Button>
           {isRunning && (
             <Button variant="danger" onClick={cancelTest}>
-              ⏹ Cancel
+              Cancel
             </Button>
           )}
           <Button variant="ghost" onClick={reset}>
@@ -228,7 +362,7 @@ export function StreamTest() {
       {/* Error display */}
       {error && (
         <div className="p-3 rounded-lg bg-danger/10 border border-danger/30 text-danger text-sm">
-          ❌ {error}
+          {error}
         </div>
       )}
 
@@ -241,11 +375,12 @@ export function StreamTest() {
             {
               label: 'Output Tokens',
               value: metrics.completionTokens
-                ? `~${Math.max(0, metrics.totalTokens - (metrics.reasoningTokens ?? 0))} est / ${metrics.completionTokens} actual`
-                : `~${Math.max(0, metrics.totalTokens - (metrics.reasoningTokens ?? 0))} (est)`,
-              desc: 'Content tokens'},
+                ? `${Math.max(0, metrics.totalTokens - (metrics.reasoningTokens ?? 0))} est / ${metrics.completionTokens} actual`
+                : `${Math.max(0, metrics.totalTokens - (metrics.reasoningTokens ?? 0))} (est)`,
+              desc: 'Content tokens',
+            },
             metrics.reasoningTokens
-              ? { label: 'Reasoning', value: `~${metrics.reasoningTokens}`, desc: 'Thinking tokens' }
+              ? { label: 'Reasoning', value: `${metrics.reasoningTokens}`, desc: 'Thinking tokens' }
               : null,
             { label: 'Total', value: `${metrics.totalTokens}`, desc: 'Total tokens' },
             { label: 'Duration', value: `${metrics.totalDuration.toFixed(0)}ms`, desc: 'End-to-end' },
@@ -271,7 +406,7 @@ export function StreamTest() {
             className="flex items-center justify-between p-3 cursor-pointer select-none"
           >
             <div className="flex items-center gap-2">
-              <Badge variant="success">🤔 Reasoning</Badge>
+              <Badge variant="success">Reasoning</Badge>
               <span className="text-xs text-text-muted">
                 {metrics?.reasoningTokens ?? ''} tokens
               </span>
