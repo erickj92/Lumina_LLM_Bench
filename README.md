@@ -28,8 +28,8 @@ A high-performance, privacy-first benchmarking suite for OpenAI-compatible API p
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/lumina-bench.git
-cd lumina-bench
+git clone https://github.com/erickj92/Lumina_LLM_Bench.git
+cd Lumina_LLM_Bench
 
 # Install frontend dependencies
 npm install
@@ -193,8 +193,8 @@ This project uses **Docker Compose** with **build-from-source** approach (no pre
 
 ```bash
 # 1. Clone the repository to your server
-git clone https://github.com/yourusername/lumina-bench.git
-cd lumina-bench
+git clone https://github.com/erickj92/Lumina_LLM_Bench.git
+cd Lumina_LLM_Bench
 
 # 2. Configure environment
 cp backend/.env.example backend/.env
@@ -258,13 +258,26 @@ npm run build
 ```
 
 *Note: Without the backend, features like user accounts and the global leaderboard will not be available.*
+
+### Option B: Full Stack with Backend (Recommended)
+
+For the complete experience including user accounts and global leaderboard:
+
+**1. Backend Setup:**
+
+```bash
+cd backend
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
 
 # Start the FastAPI server
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
-
-**2. Frontend Build:**
 
 ```bash
 # Update API URL for production
@@ -307,10 +320,6 @@ server {
 }
 ```
 
-### Option C: Docker (Coming Soon)
-
-See Phase 4 in [VIBES.md](./VIBES.md) for Docker Compose deployment.
-
 ## 🔒 Security
 
 - **Zero server-side LLM proxy:** Your API keys go directly from your browser to your chosen provider.
@@ -323,9 +332,8 @@ See Phase 4 in [VIBES.md](./VIBES.md) for Docker Compose deployment.
 - [x] Phase 1: Core streaming engine with TTFT/TPS calculation
 - [x] Phase 2: Dashboard UI with Tailwind, shadcn/ui, Recharts, and IndexedDB persistence
 - [x] Phase 3: FastAPI backend for global leaderboard, user auth, and result aggregation
-- [ ] Phase 4: Docker Compose setup and VPS deployment
+- [x] Phase 4: Docker Compose setup and VPS deployment
 
-See [`VIBES.md`](./VIBES.md) for detailed internal project tracking.
 
 ## 🤝 Contributing
 

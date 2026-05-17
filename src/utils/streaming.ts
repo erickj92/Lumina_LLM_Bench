@@ -5,6 +5,37 @@ function estimateTokenCount(text: string): number {
   return Math.max(1, Math.round(text.length / 4));
 }
 
+/**
+ * Calculate tokens per second with safeguards against absurd values.
+ *
+ * The main issue: when streamDuration (post-TTFT) is tiny (~1ms), TPS
+ * explodes to hundreds of thousands. We apply:
+ *  - A minimum floor (100ms) on the denominator
+ *  - An absolute cap (50,000 tok/s) as sanity limit
+ *  - A console.warn for values exceeding a generous threshold
+ */
+function calculateTPS(tokens: number, streamDurationMs: number): number {
+  if (tokens <= 0 || streamDurationMs <= 0) return 0;
+
+  // Floor: never divide by less than 100ms to prevent absurd TPS spikes
+  const safeDuration = Math.max(streamDurationMs, 100);
+  const tps = tokens / (safeDuration / 1000);
+
+  // Cap at 50,000 tok/s (far above any real LLM throughput)
+  const capped = Math.min(tps, 50_000);
+
+  if (tps > 10_000) {
+    console.warn(
+      `[calculateTPS] Unusually high TPS: ${tps.toFixed(0)} tok/s ` +
+      `(tokens=${tokens}, rawStreamDuration=${streamDurationMs.toFixed(1)}ms, ` +
+      `appliedFloor=${safeDuration.toFixed(1)}ms). ` +
+      `Capped to ${capped.toFixed(0)}.`
+    );
+  }
+
+  return capped;
+}
+
 export async function streamCompletion(
   config: StreamTestConfig,
   onChunk?: (text: string) => void,
@@ -147,9 +178,7 @@ export async function streamCompletion(
 
   return {
     ttft: ttft ?? totalDuration,
-    tps: streamDuration > 0
-      ? estimateTokenCount(accumulatedText) / (streamDuration / 1000)
-      : 0,
+    tps: calculateTPS(contentTokens, streamDuration),
     totalTokens: contentTokens + reasoningTokenEstimate,
     totalDuration,
     latency,
@@ -268,7 +297,7 @@ export async function streamOllamaCompletion(
 
   return {
     ttft: ttft ?? totalDuration,
-    tps: streamDuration > 0 ? contentTokens / (streamDuration / 1000) : 0,
+    tps: calculateTPS(contentTokens, streamDuration),
     totalTokens: actualTotalTokens,
     totalDuration,
     latency,
@@ -438,9 +467,7 @@ export async function streamOllamaCloudCompletion(
 
   return {
     ttft: ttft ?? totalDuration,
-    tps: streamDuration > 0
-      ? estimateTokenCount(accumulatedText) / (streamDuration / 1000)
-      : 0,
+    tps: calculateTPS(contentTokens, streamDuration),
     totalTokens: actualTotalTokens,
     totalDuration,
     latency,
