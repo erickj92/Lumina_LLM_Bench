@@ -9,10 +9,12 @@ import { decryptKey } from '../lib/utils';
 
 const KNOWN_PROVIDERS = [
   { name: 'OpenAI', url: 'https://api.openai.com' },
-  { name: 'Groq', url: 'https://api.groq.com' },
   { name: 'Venice', url: 'https://api.venice.ai' },
+  { name: 'Groq', url: 'https://api.groq.com' },
   { name: 'DeepSeek', url: 'https://api.deepseek.com' },
   { name: 'Together', url: 'https://api.together.xyz' },
+  { name: 'Ollama Cloud', url: 'https://ollama.com' },
+  { name: 'Ollama (Local)', url: 'http://localhost:11434' },
 ];
 
 export function KeyVault() {
@@ -25,6 +27,8 @@ export function KeyVault() {
   const [alias, setAlias] = useState('');
   const [showKey, setShowKey] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [isCustom, setIsCustom] = useState(false);
+  const [customProviderName, setCustomProviderName] = useState('');
 
   const handleAdd = () => {
     if (!rawKey.trim()) {
@@ -40,6 +44,7 @@ export function KeyVault() {
   const handleSelectProvider = (name: string, url: string) => {
     setProvider(name);
     setBaseUrl(url);
+    setIsCustom(false);
   };
 
   const maskKey = (key: string) => {
@@ -49,7 +54,8 @@ export function KeyVault() {
 
   const handleQuickSelect = (id: string) => {
     useKeyStore.getState().updateLastUsed(id);
-    setView('run-test');
+    useKeyStore.getState().setCurrentKey(id);
+    useUiStore.getState().setView('run-test');
   };
 
   return (
@@ -73,7 +79,7 @@ export function KeyVault() {
                   key={p.url}
                   onClick={() => handleSelectProvider(p.name, p.url)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    baseUrl === p.url
+                    !isCustom && baseUrl === p.url
                       ? 'bg-lumina-600 text-white'
                       : 'bg-surface-3 text-text-secondary border border-border hover:border-border-light'
                   }`}
@@ -81,17 +87,44 @@ export function KeyVault() {
                   {p.name}
                 </button>
               ))}
+              <button
+                onClick={() => {
+                  setIsCustom(true);
+                  setProvider('Custom');
+                  setBaseUrl('');
+                  setCustomProviderName('');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  isCustom
+                    ? 'bg-lumina-600 text-white'
+                    : 'bg-surface-3 text-text-secondary border border-border hover:border-border-light'
+                }`}
+              >
+                Custom
+              </button>
             </div>
           </div>
+          {isCustom && (
+            <Input
+              label="Provider Name"
+              value={customProviderName}
+              onChange={e => setCustomProviderName(e.target.value)}
+              placeholder="e.g. Anthropic, xAI, My Local LLM"
+            />
+          )}
           <Input
             label="Base URL"
             value={baseUrl}
             onChange={e => {
               setBaseUrl(e.target.value);
-              const matched = KNOWN_PROVIDERS.find(p => p.url === e.target.value);
-              if (matched) setProvider(matched.name);
+              if (!isCustom) {
+                const matched = KNOWN_PROVIDERS.find(p => p.url === e.target.value);
+                if (matched) setProvider(matched.name);
+              } else {
+                setProvider(customProviderName || 'Custom');
+              }
             }}
-            placeholder="https://api.openai.com"
+            placeholder={isCustom ? 'https://api.example.com' : 'https://api.openai.com'}
           />
           <Input
             label="API Key"
@@ -107,6 +140,11 @@ export function KeyVault() {
             onChange={e => setAlias(e.target.value)}
             placeholder="e.g. Work key, Dev key"
           />
+          {isCustom && baseUrl && (
+            <p className="text-xs text-text-muted -mt-2">
+              Will be saved as provider: <strong>{customProviderName || 'Custom'}</strong>
+            </p>
+          )}
           <Button variant="primary" onClick={handleAdd} size="sm">
             + Add Key
           </Button>

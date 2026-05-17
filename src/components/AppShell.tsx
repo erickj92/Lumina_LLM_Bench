@@ -1,12 +1,43 @@
 import type { ReactNode } from 'react';
 import type { AppView } from '../types';
 import { useUiStore } from '../stores/uiStore';
+import { useAuthStore } from '../stores/authStore';
+
 const NAV_ITEMS: Array<{ view: AppView; label: string; icon: string }> = [
   { view: 'dashboard', label: 'Dashboard', icon: '📊' },
   { view: 'run-test', label: 'Run Test', icon: '▶' },
+  { view: 'leaderboard', label: 'Leaderboard', icon: '🏆' },
   { view: 'history', label: 'History', icon: '📋' },
   { view: 'vault', label: 'Vault', icon: '🔐' },
 ];
+
+function AuthButton() {
+  const { isLoggedIn, username, logout } = useAuthStore();
+  const setView = useUiStore(s => s.setView);
+
+  if (isLoggedIn && username) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-text-secondary hidden sm:inline">{username}</span>
+        <button
+          onClick={logout}
+          className="text-xs px-2 py-1 rounded bg-surface-3 text-text-secondary hover:text-danger transition-colors"
+        >
+          Logout
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setView('auth')}
+      className="text-xs px-3 py-1.5 rounded-lg bg-lumina-600 text-white hover:bg-lumina-500 transition-colors"
+    >
+      Sign In
+    </button>
+  );
+}
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { currentView, setView, sidebarOpen, toggleSidebar } = useUiStore();
@@ -14,7 +45,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-surface">
       {/* Top nav bar */}
-      <header className="sticky top-0 z-40 border-b border-border bg-surface/95	px-4 h-14 flex items-center justify-between">
+      <header className="sticky top-0 z-40 border-b border-border bg-surface/95 px-4 h-14 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
             onClick={toggleSidebar}
@@ -51,7 +82,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="w-8" />
+        {/* Right side: auth/profile */}
+        <AuthButton />
       </header>
 
       <div className="flex">

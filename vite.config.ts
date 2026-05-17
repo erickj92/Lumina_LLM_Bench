@@ -18,6 +18,14 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/ollama-proxy/, ''),
       },
+      '/auth': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/results': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
 })

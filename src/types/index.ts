@@ -83,4 +83,4 @@ export interface CustomProviderConfig {
 }
 
 /** App views for navigation */
-export type AppView = 'dashboard' | 'run-test' | 'history' | 'vault';
+export type AppView = 'dashboard' | 'run-test' | 'history' | 'vault' | 'auth' | 'leaderboard';

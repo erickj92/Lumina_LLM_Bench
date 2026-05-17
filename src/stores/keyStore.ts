@@ -16,6 +16,18 @@ interface KeyState {
   addKey: (provider: string, baseUrl: string, rawKey: string, alias?: string) => void;
   deleteKey: (id: string) => void;
   updateLastUsed: (id: string) => void;
+  /** ID of the key to auto-select on the Run Test screen */
+  currentKeyId: string | null;
+  /** Set the key to auto-select on Run Test */
+  setCurrentKey: (id: string) => void;
+  /** Clear the pending key selection */
+  clearCurrentKey: () => void;
+  /** Per-provider API key map (keyed by baseUrl, encrypted) */
+  providerApiKeys: Record<string, string>;
+  /** Save an API key for a specific provider (baseUrl) */
+  setProviderApiKey: (baseUrl: string, rawKey: string) => void;
+  /** Get decrypted API key for a provider (baseUrl) */
+  getProviderApiKey: (baseUrl: string) => string | null;
 }
 
 export const useKeyStore = create<KeyState>()(
@@ -60,10 +72,37 @@ export const useKeyStore = create<KeyState>()(
           ),
         }));
       },
+
+      currentKeyId: null,
+
+      setCurrentKey: (id: string) => {
+        set({ currentKeyId: id });
+      },
+
+      clearCurrentKey: () => {
+        set({ currentKeyId: null });
+      },
+
+      providerApiKeys: {},
+
+      setProviderApiKey: (baseUrl: string, rawKey: string) => {
+        set(state => ({
+          providerApiKeys: {
+            ...state.providerApiKeys,
+            [baseUrl]: encryptKey(rawKey),
+          },
+        }));
+      },
+
+      getProviderApiKey: (baseUrl: string) => {
+        const encrypted = get().providerApiKeys[baseUrl];
+        if (!encrypted) return null;
+        return decryptKey(encrypted);
+      },
     }),
     {
       name: storageKey('vault'),
-      partialize: (state) => ({ keys: state.keys }),
+      partialize: (state) => ({ keys: state.keys, providerApiKeys: state.providerApiKeys }),
     }
   )
 );

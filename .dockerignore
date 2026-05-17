@@ -1,0 +1,36 @@
+# ── Docker build context excludes ──────────────────────────────────────────
+
+# Dependencies (reinstalled in container)
+node_modules/
+backend/.venv/
+
+# Build artifacts
+dist/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+
+# Local environment
+.env
+.env.local
+backend/.env
+
+# Version control
+.git/
+.gitignore
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Project notes
+VIBES.md
+README.md

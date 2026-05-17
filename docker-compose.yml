@@ -1,0 +1,16 @@
+services:
+  backend:
+    build: ./backend
+    volumes:
+      - lumina_data:/data
+    # No ports exposed - internal only
+
+  frontend:
+    build: .
+    ports:
+      - "8383:80"
+    depends_on:
+      - backend
+
+volumes:
+  lumina_data:

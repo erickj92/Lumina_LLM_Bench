@@ -3,7 +3,9 @@ import { useStreamTest } from '../hooks/useStreamTest';
 import { useKeyStore } from '../stores/keyStore';
 import { useHistoryStore } from '../stores/historyStore';
 import { useUiStore } from '../stores/uiStore';
+import { useAuthStore } from '../stores/authStore';
 import { decryptKey } from '../lib/utils';
+import { submitResult } from '../api/client';
 import { Card, CardContent, CardHeader } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
@@ -37,7 +39,7 @@ export function StreamTest() {
     reset,
   } = useStreamTest();
 
-  const { keys, getDecryptedKey } = useKeyStore();
+  const { keys, getDecryptedKey, setProviderApiKey, getProviderApiKey } = useKeyStore();
   const addResult = useHistoryStore(s => s.addResult);
   const addRecentModel = useUiStore(s => s.addRecentModel);
   const { customProviders, addCustomProvider, removeCustomProvider } = useUiStore();
@@ -48,13 +50,48 @@ export function StreamTest() {
   const [manualModel, setManualModel] = useState('');
   const [maxTokens, setMaxTokens] = useState('4096');
   const [showReasoning, setShowReasoning] = useState(false);
+  const [reportToBackend, setReportToBackend] = useState(false);
 
   // Custom provider state
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [customProviderName, setCustomProviderName] = useState('');
 
-  // Try to auto-fill key from vault
+  // Check for pending key selection from the vault (Issue 2)
   useEffect(() => {
+    const pendingId = useKeyStore.getState().currentKeyId;
+    if (!pendingId) return;
+
+    const storedKey = keys.find(k => k.id === pendingId);
+    if (storedKey) {
+      const decrypted = getDecryptedKey(storedKey.id);
+      if (decrypted) {
+        setBaseUrl(storedKey.baseUrl);
+        setApiKey(decrypted);
+        useKeyStore.getState().clearCurrentKey();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save API key per provider when user types (Issue 4)
+  useEffect(() => {
+    if (apiKey && baseUrl && !useKeyStore.getState().currentKeyId) {
+      setProviderApiKey(baseUrl, apiKey);
+    }
+  }, [apiKey, baseUrl, setProviderApiKey]);
+
+  // Try to auto-fill key from vault by baseUrl match
+  useEffect(() => {
+    const pendingId = useKeyStore.getState().currentKeyId;
+    // Don't auto-fill if there's a pending key selection still active
+    if (pendingId) return;
+    // First try the per-provider saved key
+    const savedKey = getProviderApiKey(baseUrl);
+    if (savedKey) {
+      setApiKey(savedKey);
+      return;
+    }
+    // Fall back to vault keys
     const storedKey = useKeyStore.getState().findKey(baseUrl);
     if (storedKey) {
       const decrypted = getDecryptedKey(storedKey.id);
@@ -63,8 +100,13 @@ export function StreamTest() {
   }, [baseUrl]);
 
   const handleSelectProvider = (url: string) => {
+    // Save current API key for the current provider before switching
+    if (apiKey && baseUrl) {
+      setProviderApiKey(baseUrl, apiKey);
+    }
     setBaseUrl(url);
     setSelectedModel('');
+    setApiKey('');
     setShowCustomForm(false);
     // Reset models when switching providers
     if (modelsLoaded) {
@@ -80,10 +122,15 @@ export function StreamTest() {
   };
 
   const handleSelectCustomSaved = (name: string, url: string) => {
+    // Save current API key before switching
+    if (apiKey && baseUrl) {
+      setProviderApiKey(baseUrl, apiKey);
+    }
     setShowCustomForm(false);
     setBaseUrl(url);
     setCustomProviderName(name);
     setSelectedModel('');
+    setApiKey('');
   };
 
   const handleLoadModels = useCallback(() => {
@@ -115,8 +162,27 @@ export function StreamTest() {
         model: effectiveModel,
         ...metricsData,
       });
+
+      // Optionally submit to backend leaderboard
+      if (reportToBackend) {
+        try {
+          await submitResult({
+            provider,
+            model: effectiveModel,
+            ttft_ms: metricsData.ttft,
+            tps: metricsData.tps,
+            total_tokens: metricsData.totalTokens,
+            latency_ms: metricsData.latency,
+            region: undefined,
+            timestamp: new Date().toISOString(),
+          });
+          console.log('[report] leaderboard submit ok');
+        } catch (err) {
+          console.warn('[report] backend submit failed:', err instanceof Error ? err.message : err);
+        }
+      }
     }
-  }, [baseUrl, apiKey, selectedModel, manualModel, maxTokens, runTest, addRecentModel, addResult]);
+  }, [baseUrl, apiKey, selectedModel, manualModel, maxTokens, runTest, addRecentModel, addResult, reportToBackend]);
 
   const handleSaveCustomProviderWrapper = useCallback(() => {
     const name = customProviderName.trim() || detectProvider(baseUrl);
@@ -338,6 +404,16 @@ export function StreamTest() {
             className="w-20 rounded-lg border border-border bg-surface-3 px-2 py-1.5 text-sm text-text text-center focus:outline-none focus:ring-2 focus:ring-lumina-500"
           />
         </div>
+
+        {/* Report to backend checkbox */}
+        <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={reportToBackend}
+            onChange={e => setReportToBackend(e.target.checked)}
+            className="rounded border-border bg-surface-3 text-lumina-600 focus:ring-lumina-500"
+          />
+          Report</label>
         <div className="flex gap-2 ml-auto">
           <Button
             variant="primary"

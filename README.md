@@ -22,6 +22,7 @@ A high-performance, privacy-first benchmarking suite for OpenAI-compatible API p
 - **🔐 The Vault:** Secure local storage for your API keys with quick-select.
 - **📜 Test History:** Persistent history with filtering, search, and JSON export.
 - **🏷️ Custom Providers:** Add your own API endpoints beyond the built-in presets.
+- **🏆 Global Leaderboard:** Submit and compare results with the community (anonymous by default).
 
 ## 🚀 Quick Start
 
@@ -30,7 +31,7 @@ A high-performance, privacy-first benchmarking suite for OpenAI-compatible API p
 git clone https://github.com/yourusername/lumina-bench.git
 cd lumina-bench
 
-# Install dependencies
+# Install frontend dependencies
 npm install
 
 # Start the development server
@@ -68,6 +69,11 @@ Then open `http://localhost:5173` in your browser.
    - See past benchmarks in the History tab
    - Filter by provider, model, or date
    - Export your history to JSON
+
+7. **Global Leaderboard:**
+   - Create an account (optional, username-only)
+   - Check "Report to Leaderboard" on benchmark completion
+   - View global aggregated stats in the 🏆 Leaderboard tab
 
 ## 🏗️ Architecture
 
@@ -112,17 +118,22 @@ Then open `http://localhost:5173` in your browser.
 ```
 src/
 ├── components/          # React UI components
+│   ├── AuthPanel.tsx    # Login/Register UI
 │   ├── Dashboard.tsx    # Sparkline grid view
 │   ├── HistoryView.tsx  # Test history browser
 │   ├── KeyVault.tsx     # API key manager
+│   ├── Leaderboard.tsx  # Global leaderboard
 │   ├── ModelSelector.tsx # Searchable model dropdown
 │   └── StreamTest.tsx   # Main benchmark UI
 ├── hooks/               # Custom React hooks
 │   └── useStreamTest.ts # Test lifecycle management
 ├── stores/              # Zustand state stores
+│   ├── authStore.ts     # Auth token persistence
 │   ├── keyStore.ts      # API key persistence
 │   ├── historyStore.ts  # History cache
 │   └── uiStore.ts       # UI state
+├── api/                 # API client
+│   └── client.ts        # Backend API calls
 ├── db/                  # IndexedDB layer
 │   └── history.ts       # Test result storage
 ├── types/               # TypeScript definitions
@@ -132,6 +143,16 @@ src/
 │   └── models.ts        # Model fetching & detection
 ├── App.tsx
 └── main.tsx
+
+backend/                  # FastAPI backend
+├── main.py              # FastAPI app entry
+├── auth_router.py       # /auth endpoints
+├── results_router.py    # /results endpoints
+├── database.py          # SQLite connection
+├── models.py            # SQLAlchemy models
+├── schemas.py           # Pydantic schemas
+├── auth.py              # JWT utilities
+└── requirements.txt     # Python deps
 ```
 
 ### Tech Stack
@@ -141,7 +162,8 @@ src/
 - **State:** Zustand
 - **Storage:** IndexedDB (idb library)
 - **Visualization:** Recharts
-- **Backend:** FastAPI + SQLite (Phase 3)
+- **Backend:** FastAPI + SQLite
+- **Auth:** JWT with bcrypt password hashing
 
 ### Building for Production
 
@@ -151,17 +173,156 @@ npm run build
 
 Output goes to `dist/` — deploy as a static site.
 
+## 🌐 Deployment
+
+### Prerequisites
+
+- **Docker + Docker Compose** installed on your server
+- A **reverse proxy** (e.g., [Nginx Proxy Manager](https://nginxproxymanager.com/)) for SSL/HTTPS
+- A domain/subdomain pointed to your server
+
+### Deployment Method: Docker Compose (Recommended)
+
+This project uses **Docker Compose** with **build-from-source** approach (no pre-built images). The Docker setup builds everything locally on your server.
+
+**Assumptions:**
+- You have a reverse proxy (like Nginx Proxy Manager) handling SSL certificates
+- Your reverse proxy will forward traffic to the exposed Docker port
+
+**Steps:**
+
+```bash
+# 1. Clone the repository to your server
+git clone https://github.com/yourusername/lumina-bench.git
+cd lumina-bench
+
+# 2. Configure environment
+cp backend/.env.example backend/.env
+nano backend/.env  # Edit with your settings (see below)
+
+# 3. Build and start services
+docker compose up --build -d
+
+# 4. Configure your reverse proxy
+# - Point your domain (e.g., lumina.yourdomain.com) to your server's IP
+# - In Nginx Proxy Manager: Add Proxy Host → Forward to http://your-server-ip:PORT
+# - Enable SSL with Let's Encrypt
+```
+
+**`backend/.env` Configuration:**
+
+```bash
+# Required - Generate with: openssl rand -hex 32
+SECRET_KEY=your-random-secret-key-here
+
+# Database location (inside container)
+DATABASE_URL=sqlite:///data/lumina_bench.db
+
+# CORS - Add your domain when using HTTPS
+CORS_ORIGINS=https://lumina.yourdomain.com,http://localhost:5173
+```
+
+**Docker Compose Details:**
+
+| Service | Exposes | Purpose |
+|---------|---------|---------|
+| `frontend` | `PORT` (default: 80) | nginx:alpine serving static files + reverse proxy to backend |
+| `backend` | Internal only | FastAPI + uvicorn API server |
+| `lumina_data` | Volume | SQLite database persistence |
+
+**Default Port Mapping:**
+- Frontend container port 80 is mapped to host port 80
+- Change in `docker-compose.yml` if port 80 is already in use:
+  ```yaml
+  ports:
+    - "3000:80"  # Use host port 3000 instead
+  ```
+
+**Reverse Proxy Example (Nginx Proxy Manager):**
+
+| Setting | Value |
+|---------|-------|
+| Domain Names | `lumina.yourdomain.com` |
+| Scheme | `http` |
+| Forward Hostname/IP | `your-vps-ip` |
+| Forward Port | `80` (or whatever you mapped to) |
+| SSL | Request a new SSL certificate |
+
+### Option C: Static Frontend Only (No Leaderboard)
+
+If you only need local testing without the global leaderboard features:
+
+```bash
+npm run build
+# Deploy dist/ to any static host (Netlify, Vercel, GitHub Pages, etc.)
+```
+
+*Note: Without the backend, features like user accounts and the global leaderboard will not be available.*
+pip install -r requirements.txt
+
+# Start the FastAPI server
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+**2. Frontend Build:**
+
+```bash
+# Update API URL for production
+# Edit src/api/client.ts and change BASE_URL to your backend URL
+
+npm run build
+```
+
+**3. Deploy:**
+
+- **Backend:** Run uvicorn behind a reverse proxy (nginx, Caddy) with HTTPS
+- **Frontend:** Deploy `dist/` to your static host
+- **Database:** SQLite file is created automatically; back it up regularly
+
+**Environment Variables:**
+
+Create a `.env` file in `backend/`:
+
+```bash
+# Required
+SECRET_KEY=your-random-secret-key-here  # Generate with: openssl rand -hex 32
+
+# Optional
+DATABASE_URL=sqlite:///lumina_bench.db  # Default location
+CORS_ORIGINS=https://yourdomain.com      # Frontend domain
+```
+
+**Reverse Proxy Example (nginx):**
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name api.luminabench.example;
+
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+### Option C: Docker (Coming Soon)
+
+See Phase 4 in [VIBES.md](./VIBES.md) for Docker Compose deployment.
+
 ## 🔒 Security
 
 - **Zero server-side LLM proxy:** Your API keys go directly from your browser to your chosen provider.
 - **No key storage on our servers:** Keys are stored in your browser's local storage only.
 - **Optional anonymous reporting:** Only TTFT, TPS, provider name, and model ID are sent to our aggregation API (if you choose to report results).
+- **No email required:** Accounts are username-only. No password recovery mechanism.
 
 ## 🗺️ Roadmap
 
 - [x] Phase 1: Core streaming engine with TTFT/TPS calculation
 - [x] Phase 2: Dashboard UI with Tailwind, shadcn/ui, Recharts, and IndexedDB persistence
-- [ ] Phase 3: FastAPI backend for global leaderboard and result aggregation
+- [x] Phase 3: FastAPI backend for global leaderboard, user auth, and result aggregation
 - [ ] Phase 4: Docker Compose setup and VPS deployment
 
 See [`VIBES.md`](./VIBES.md) for detailed internal project tracking.
