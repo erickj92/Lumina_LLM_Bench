@@ -8,6 +8,7 @@ Run with:
 """
 
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,14 +41,19 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# ── CORS — allow the Vite dev frontend ────────────────────────────────────
+# ── CORS — allow configured origins ───────────────────────────────────────
+# In production, set CORS_ORIGINS to a comma-separated list (e.g., https://yourdomain.com)
+# or use * for any origin (not recommended for production).
+
+_cors_origins_str = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173",
+)
+_cors_origins = [o.strip() for o in _cors_origins_str.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["Authorization", "Content-Type"],

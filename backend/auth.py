@@ -16,10 +16,12 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User
 
+import os
+
 # ── Configuration ─────────────────────────────────────────────────────────
 
-# Use a fixed secret for simplicity. In production, read from env var.
-SECRET_KEY = "lumina-bench-secret-key-change-in-production-v1"
+# Read from env var in production; fallback for local dev only.
+SECRET_KEY = os.getenv("SECRET_KEY", "lumina-bench-secret-key-change-in-production-v1")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 72  # 3 days
 
